@@ -4,7 +4,7 @@
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { DEFAULT_ICON, type SessionIcon, type SessionState } from "../../shared/protocol.ts";
+import { DEFAULT_ICON, type SessionIcon, type SessionSource, type SessionState } from "../../shared/protocol.ts";
 import type { SessionRecord } from "./state.ts";
 
 export interface Pin {
@@ -85,7 +85,7 @@ export class Store {
         pid: r.pid,
         stateSince: r.state_since,
         lastEventAt: r.last_event_at,
-        ...(r.source === "antigravity" ? { source: "antigravity" as const } : {}),
+        ...(r.source === "antigravity" || r.source === "grok" ? { source: r.source as SessionSource } : {}),
         ...(r.project ? { project: r.project } : {}),
       }));
   }

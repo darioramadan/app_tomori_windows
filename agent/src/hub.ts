@@ -90,9 +90,9 @@ export class SessionHub {
       }));
   }
 
-  /** Project of a session: Antigravity records carry theirs; Claude ones come from the desktop app's groups. */
+  /** Project of a session: Antigravity and Grok records carry theirs; Claude ones come from the desktop app's groups. */
   projectOf(rec: SessionRecord): string | null {
-    return rec.source === "antigravity" ? (rec.project ?? null) : (this.claudeProjects.get(rec.id) ?? null);
+    return rec.source && rec.source !== "claude" ? (rec.project ?? null) : (this.claudeProjects.get(rec.id) ?? null);
   }
 
   /** Replaces the Claude desktop app's session → project map, announcing sessions whose project changed. */
@@ -105,17 +105,17 @@ export class SessionHub {
   }
 
   /**
-   * One successful poll of Antigravity: `seen` are its conversations as records. Live Antigravity
-   * sessions missing from it are ended (the app closed them, or Antigravity quit).
+   * One successful poll of an app other than Claude: `seen` are its conversations as records. Its live
+   * sessions missing from it are ended (the app closed them, or the app quit).
    */
-  syncAntigravity(seen: SessionRecord[]) {
+  syncSource(source: "antigravity" | "grok", seen: SessionRecord[]) {
     const ids = new Set(seen.map((rec) => rec.id));
     for (const next of seen) {
       const prev = this.records.get(next.id);
       if (!prev || VISIBLE.some((k) => prev[k] !== next[k])) this.commit(next);
     }
     for (const rec of [...this.records.values()]) {
-      if (rec.source === "antigravity" && rec.live && !ids.has(rec.id)) this.commit(this.ended(rec));
+      if (rec.source === source && rec.live && !ids.has(rec.id)) this.commit(this.ended(rec));
     }
   }
 
@@ -139,8 +139,8 @@ export class SessionHub {
     const now = this.now();
     for (const [id, until] of this.stoppedUntil) if (until <= now) this.stoppedUntil.delete(id);
     const polled = agents.filter((agent) => !this.stoppedUntil.has(agent.sessionId));
-    // `claude agents` knows nothing about Antigravity: its sessions must not be ended for missing from the poll.
-    const claude = new Map([...this.records].filter(([, rec]) => rec.source !== "antigravity"));
+    // `claude agents` knows nothing about other apps: their sessions must not be ended for missing from the poll.
+    const claude = new Map([...this.records].filter(([, rec]) => !rec.source || rec.source === "claude"));
     for (const rec of reconcile(claude, polled, now)) this.commit(rec);
   }
 

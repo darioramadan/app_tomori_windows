@@ -24,6 +24,8 @@ export const CLAUDE_DESKTOP_LOG = join(LOCAL, "Claude", "logs", "main.log");
 /** Antigravity's language servers write one hub_<port>.json per instance here. */
 export const ANTIGRAVITY_DAEMON_DIR = join(HOME, ".gemini", "antigravity", "daemon");
 export const ANTIGRAVITY_EXE = join(LOCAL, "Programs", "antigravity", "Antigravity.exe");
+/** Grok Bot (Electron) keeps its data, including a cached agent list, in %APPDATA%\Grok Bot. */
+export const GROK_DATA_DIR = join(process.env.APPDATA ?? join(HOME, "AppData", "Roaming"), "Grok Bot");
 
 /** The Claude CLI: the native installer's copy first, since the login-time PATH may not include ~/.local/bin. */
 export function claudeBin(): string {

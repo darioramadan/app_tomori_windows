@@ -94,7 +94,7 @@ export function libraryMenu(entries: LibraryEntry[], send: Send, close: () => vo
       menu.append(row);
     }
     for (const e of g.items) {
-      const row = item(e.name + (e.source === "antigravity" ? " (AG)" : ""), () => { send({ type: "pin", id: e.id, pinned: !e.pinned }); close(); }, { checked: e.pinned, hint: ago(e.lastActivityAt, now) });
+      const row = item(e.name + (e.source === "antigravity" ? " (AG)" : e.source === "grok" ? " (Grok)" : ""), () => { send({ type: "pin", id: e.id, pinned: !e.pinned }); close(); }, { checked: e.pinned, hint: ago(e.lastActivityAt, now) });
       row.title = e.cwd;
       menu.append(row);
     }

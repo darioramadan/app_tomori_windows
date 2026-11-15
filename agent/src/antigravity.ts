@@ -142,7 +142,7 @@ export function startAntigravityPoller(
           }
         }
         // Every hub failing is not "Antigravity closed": end nothing, the next poll decides.
-        if (daemons.length === 0 || answered > 0) hub.syncAntigravity(records);
+        if (daemons.length === 0 || answered > 0) hub.syncSource("antigravity", records);
         lastError = "";
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

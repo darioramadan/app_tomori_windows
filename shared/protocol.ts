@@ -61,7 +61,7 @@ export interface PanelSession {
   project: string | null;
 }
 
-export const SESSION_SOURCES = ["claude", "antigravity"] as const;
+export const SESSION_SOURCES = ["claude", "antigravity", "grok"] as const;
 export type SessionSource = (typeof SESSION_SOURCES)[number];
 
 /** A desktop-app session the panel can pin, running or not. */

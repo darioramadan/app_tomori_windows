@@ -1,6 +1,7 @@
 /**
  * Opens a session (Windows).
  * - Antigravity: launches Antigravity, which brings its open window to the front.
+ * - Grok Bot: its registered grokbot:// link, which starts or fronts the app (not a given agent).
  * - Known to the Claude desktop app (running or stopped while idle): `claude://code/continue?session=local_…`
  *   (undocumented); the app restarts the session if needed.
  * - Running outside the desktop app (a terminal): refused, since resuming would start a second process.
@@ -86,6 +87,7 @@ export async function planOpen(
 ): Promise<OpenResult> {
   if (!isSessionId(sessionId)) return { ok: false, error: "invalid session id" };
   if (source === "antigravity") return { ok: true, command: [antigravityExe] };
+  if (source === "grok") return { ok: true, command: ["cmd", "/c", "start", "", "grokbot://"] };
 
   const desktop = await findDesktopSession(sessionId, desktopDir);
   if (desktop && LOCAL_ID.test(desktop.localId)) {

@@ -110,11 +110,13 @@ export function projectColor(project: string): string {
 
 /** An unpinned session wearing the default color takes its project's; a chosen (pinned) icon wins. */
 export const ANTIGRAVITY_COLOR = "#e8e8e8"; // palette White
+export const GROK_COLOR = "#a66cff"; // palette Purple
 
-/** The color a creature wears: one picked by hand wins; else Antigravity is white and a Claude project gets its own. */
+/** The color a creature wears: one picked by hand wins; else Antigravity is white, Grok purple, and a Claude project gets its own. */
 export function effectiveColor(s: PanelSession): string {
   if (s.icon.color.toLowerCase() !== DEFAULT_COLOR) return s.icon.color;
   if (s.source === "antigravity") return ANTIGRAVITY_COLOR;
+  if (s.source === "grok") return GROK_COLOR;
   if (!s.pinned && s.project) return projectColor(s.project);
   return s.icon.color;
 }

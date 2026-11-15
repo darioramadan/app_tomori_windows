@@ -119,7 +119,7 @@ export function startServers({
           if (msg.type === "new") {
             // The folder comes from a session we know, never from the client.
             const cwd = hub.get(msg.id)?.cwd ?? (await desktopSessions()).find((s) => s.sessionId === msg.id)?.cwd;
-            if (!cwd || hub.get(msg.id)?.source === "antigravity") return send(ws, { type: "error", message: "unknown session" });
+            if (!cwd || (hub.get(msg.id)?.source ?? "claude") !== "claude") return send(ws, { type: "error", message: "unknown session" });
             if (!existsSync(cwd)) return send(ws, { type: "error", message: `folder not found: ${cwd}` });
             const result = await create(cwd);
             if (!result.ok) send(ws, { type: "error", message: result.error });

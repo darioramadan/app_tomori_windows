@@ -46,10 +46,10 @@ test("an unchanged state keeps its start time", () => {
 test("Claude's poll doesn't end Antigravity sessions, and Antigravity's sync doesn't end Claude's", () => {
   const hub = new SessionHub(new Store(), () => 100_000);
   hub.handleHook({ hook_event_name: "UserPromptSubmit", session_id: CL, cwd: "/x" });
-  hub.syncAntigravity([toRecord(AG, { ...base, status: "CASCADE_RUN_STATUS_RUNNING" }, undefined, 100_000)]);
+  hub.syncSource("antigravity", [toRecord(AG, { ...base, status: "CASCADE_RUN_STATUS_RUNNING" }, undefined, 100_000)]);
   hub.handleAgents([{ sessionId: CL, cwd: "/x", status: "busy", startedAt: 0 }]);
   expect(hub.get(AG)).toMatchObject({ live: true, source: "antigravity", state: "working" });
-  hub.syncAntigravity([]); // Antigravity closed
+  hub.syncSource("antigravity", []); // Antigravity closed
   expect(hub.get(AG)?.state).toBe("ended");
   expect(hub.get(CL)).toMatchObject({ live: true, source: "claude" });
 });

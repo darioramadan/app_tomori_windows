@@ -5,6 +5,7 @@ Versión propia para Windows 11 de [Tomari](https://github.com/elrincondeldev/to
 Es una tira flotante en el borde de la pantalla con un bichito pixel-art animado por sesión. Muestra dos fuentes:
 - las sesiones de **Claude Code en la app de escritorio de Claude** (trabajo);
 - las conversaciones de **Antigravity** (cosas personales).
+- los agentes de **Grok Bot** (violetas).
 
 Cada bichito muestra en qué está su sesión. Si le hacés click, abre esa sesión.
 
@@ -123,6 +124,14 @@ Antigravity: API local del language server ──poll 2s────┴─▶ to
   - un campo `waitingFor…` en `true` → necesita permiso.
 - **Proyecto:** si es una tarea programada, el `sidecarId` (por ejemplo `daily-gmail-cleanup`). Si no, el nombre de la carpeta del workspace (`file:///c:/Users/dev/Desktop/my-site` → `my-site`).
 - **Si Antigravity se cierra:** sus bichitos pasan a cerrado. Si la API falla, no se cierra nada; lo decide la consulta siguiente.
+
+**Grok Bot**
+
+- **Agentes:** Grok Bot guarda una copia de su barra lateral en `%APPDATA%\Grok Bot\sand-client-persistence\`. Cada archivo `.blob` tiene como nombre su clave en base32; la que termina en `.roster.last-roster` tiene `{value: {rows: [...]}}`, una fila por agente. Se ignoran los grupos y los ocultos.
+- **Estado:** `awaitingUserResponse` → te pregunta; `hasUnread` → listo; si no, idle. "Trabajando" no está en esa copia, y la app la escribe cada tanto, así que el estado puede llegar con demora.
+- **Si está abierto:** `desktop-status.json` tiene el `pid` de la app. Si ese proceso no existe, los bichitos de Grok pasan a cerrado.
+- **Abrir:** `cmd /c start "" "grokbot://"` abre o trae al frente la app, no el agente puntual.
+- Todos van al grupo "Grok": los agentes corren en la nube de Grok, sin carpeta local.
 
 ### Archivos en la PC
 

@@ -9,6 +9,7 @@ import { startServers } from "./server.ts";
 import { Store } from "./store.ts";
 import { firstPrompt } from "./transcript.ts";
 import { startAntigravityPoller } from "./antigravity.ts";
+import { startGrokPoller } from "./grok.ts";
 import { desktopSessionsLister } from "./desktop-sessions.ts";
 
 /** Runs until SIGINT or SIGTERM. */
@@ -29,6 +30,7 @@ export async function runAgent() {
   const arbiter = new FocusArbiter(front, (id) => hub.setFocused(id));
   const stopFocus = watchDesktopFocus((id) => arbiter.desktop(id));
   const stopAntigravity = startAntigravityPoller(hub);
+  const stopGrok = startGrokPoller(hub);
   // Projects (sidebar groups) of the desktop app's sessions; they change rarely.
   const listDesktop = desktopSessionsLister();
   const refreshProjects = () =>
@@ -61,6 +63,7 @@ export async function runAgent() {
     stopPoller();
     stopFocus();
     stopAntigravity();
+    stopGrok();
     clearInterval(projectsTimer);
     servers.stop();
     store.close();
