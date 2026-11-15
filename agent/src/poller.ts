@@ -1,4 +1,4 @@
-import { $ } from "bun";
+import { claudeBin } from "./config.ts";
 import type { SessionHub } from "./hub.ts";
 import { isAlive, sessionPids } from "./open-session.ts";
 import type { AgentEntry } from "./state.ts";
@@ -16,7 +16,7 @@ export function startPoller(
   hub: SessionHub,
   {
     intervalMs = 3000,
-    agents = () => $`claude agents --json`.quiet().json(),
+    agents = claudeAgents,
     sessionPids: pids = () => sessionPids(),
     isAlive: alive = isAlive,
   }: PollerOptions = {},
@@ -34,7 +34,12 @@ export function startPoller(
         if (message !== lastError) console.error(`poll failed: ${message}`); // log each distinct failure once
         lastError = message;
       }
-      // Independent of the command: it may be failing, or a closed tab never said SessionEnd.
+      await Bun.sleep(intervalMs);
+    }
+  })();
+  // Its own loop: the command may be failing or hung, or a closed tab never said SessionEnd.
+  (async () => {
+    while (!stopped) {
       try {
         hub.endDead(alive, await pids());
       } catch (err) {
@@ -47,4 +52,19 @@ export function startPoller(
   return () => {
     stopped = true;
   };
+}
+
+const AGENTS_TIMEOUT_MS = 10_000;
+
+/** `claude agents --json`, hidden (the agent has no console) and killed if it hangs. */
+async function claudeAgents(): Promise<AgentEntry[]> {
+  const proc = Bun.spawn([claudeBin(), "agents", "--json"], { stdout: "pipe", stderr: "ignore", windowsHide: true });
+  const timer = setTimeout(() => proc.kill("SIGKILL"), AGENTS_TIMEOUT_MS);
+  try {
+    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    if (code !== 0) throw new Error(`claude agents exited with ${code}`);
+    return JSON.parse(out) as AgentEntry[];
+  } finally {
+    clearTimeout(timer);
+  }
 }

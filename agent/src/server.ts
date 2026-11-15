@@ -7,7 +7,8 @@ import { basename } from "node:path";
 import { BACKGROUND_KIND, type LibraryEntry, type ServerMessage } from "../../shared/protocol.ts";
 import { desktopSessionsLister, type DesktopSession } from "./desktop-sessions.ts";
 import type { SessionHub } from "./hub.ts";
-import { openSession, openTerminalTab, type OpenOptions, type OpenResult } from "./open-session.ts";
+import { existsSync } from "node:fs";
+import { newSession, openSession, type OpenOptions, type OpenResult } from "./open-session.ts";
 import { parseClientMessage } from "./protocol-guard.ts";
 import { stopSession } from "./stop-session.ts";
 import type { HookEvent } from "./state.ts";
@@ -22,8 +23,8 @@ export interface ServerOptions {
   panelPort: number;
   /** Replaceable so tests don't open real sessions or tabs, or read the real desktop app. */
   open?: (id: string, options?: OpenOptions) => Promise<OpenResult>;
-  terminal?: () => Promise<OpenResult>;
   stop?: (id: string) => Promise<OpenResult>;
+  create?: (cwd: string) => Promise<OpenResult>;
   desktopSessions?: () => Promise<DesktopSession[]>;
 }
 
@@ -37,8 +38,8 @@ export function startServers({
   hookPort,
   panelPort,
   open = openSession,
-  terminal = openTerminalTab,
   stop = stopSession,
+  create = newSession,
   desktopSessions = desktopSessionsLister(),
 }: ServerOptions) {
   /** Desktop sessions plus the live ones the agent sees, e.g. in a terminal; a desktop entry wins a duplicate. */
@@ -53,6 +54,8 @@ export function startServers({
         cwd: s.cwd,
         lastActivityAt: s.lastActivityAt,
         pinned: hub.get(s.sessionId)?.pinned ?? false,
+        source: "claude" as const,
+        project: s.project,
       }));
     for (const entry of hub.liveEntries()) if (!inDesktop.has(entry.id)) entries.push(entry);
     return entries.sort((a, b) => b.lastActivityAt - a.lastActivityAt).slice(0, LIBRARY_SIZE);
@@ -73,6 +76,8 @@ export function startServers({
     async fetch(req) {
       const { pathname } = new URL(req.url);
       if (req.method !== "POST" || pathname !== "/hook") return new Response("not found", { status: 404 });
+      // A web page can only send "simple" POSTs (text/plain, forms) without a CORS preflight we never answer.
+      if (!req.headers.get("content-type")?.startsWith("application/json")) return new Response("json only", { status: 415 });
       try {
         const event = (await req.json()) as HookEvent;
         if (typeof event?.session_id === "string" && typeof event.hook_event_name === "string") hub.handleHook(event);
@@ -111,18 +116,22 @@ export function startServers({
             front.set(msg.app);
             return;
           }
-          if (msg.type === "terminal") {
-            const result = await terminal();
+          if (msg.type === "new") {
+            // The folder comes from a session we know, never from the client.
+            const cwd = hub.get(msg.id)?.cwd ?? (await desktopSessions()).find((s) => s.sessionId === msg.id)?.cwd;
+            if (!cwd || hub.get(msg.id)?.source === "antigravity") return send(ws, { type: "error", message: "unknown session" });
+            if (!existsSync(cwd)) return send(ws, { type: "error", message: `folder not found: ${cwd}` });
+            const result = await create(cwd);
             if (!result.ok) send(ws, { type: "error", message: result.error });
             return;
           }
-          if (!hub.has(msg.id) && msg.type !== "open" && msg.type !== "stop") await adoptFromDesktop(msg.id);
+          if (!hub.has(msg.id) && msg.type !== "stop") await adoptFromDesktop(msg.id);
           if (!hub.has(msg.id)) return send(ws, { type: "error", message: "unknown session" });
 
           switch (msg.type) {
             case "open": {
               const session = hub.get(msg.id);
-              const result = await open(msg.id, { cwd: session?.cwd, kind: session?.kind, name: hub.titleOf(msg.id) ?? undefined });
+              const result = await open(msg.id, { kind: session?.kind, source: session?.source });
               // The desktop log confirms focus a moment later; show it right away.
               if (result.ok) hub.setFocused(msg.id);
               else send(ws, { type: "error", message: result.error });
@@ -158,7 +167,7 @@ export function startServers({
       },
       close(ws) {
         ws.unsubscribe(TOPIC);
-        if (ws.data.reportedFront) front.set("unknown"); // its report is stale now; ask Terminal again until someone says
+        if (ws.data.reportedFront) front.set("unknown"); // its report is stale now
       },
     },
   });

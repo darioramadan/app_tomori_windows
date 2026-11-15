@@ -8,7 +8,8 @@ import { startPoller } from "./poller.ts";
 import { startServers } from "./server.ts";
 import { Store } from "./store.ts";
 import { firstPrompt } from "./transcript.ts";
-import { watchTerminalFocus } from "./terminal-focus.ts";
+import { startAntigravityPoller } from "./antigravity.ts";
+import { desktopSessionsLister } from "./desktop-sessions.ts";
 
 /** Runs until SIGINT or SIGTERM. */
 export async function runAgent() {
@@ -27,15 +28,17 @@ export async function runAgent() {
   // Both focus sources coexist: the one for the app in front wins, and the other waits (see FocusArbiter).
   const arbiter = new FocusArbiter(front, (id) => hub.setFocused(id));
   const stopFocus = watchDesktopFocus((id) => arbiter.desktop(id));
-  // osascript only runs while Terminal is in front (or no overlay has said), and Terminal coming to the front ticks at once.
-  const stopTerminalFocus = watchTerminalFocus((id) => hub.setFocused(id), {
-    enabled: () => front.terminalMayRun(),
-    wakeOn: (wake) => front.subscribe((app) => app === "terminal" && wake()),
-    alive: (id) => hub.get(id)?.live ?? false,
-    current: () => hub.focusedId,
-  });
+  const stopAntigravity = startAntigravityPoller(hub);
+  // Projects (sidebar groups) of the desktop app's sessions; they change rarely.
+  const listDesktop = desktopSessionsLister();
+  const refreshProjects = () =>
+    listDesktop()
+      .then((sessions) => hub.setClaudeProjects(new Map(sessions.filter((s) => s.project).map((s) => [s.sessionId, s.project!]))))
+      .catch((err) => console.error(`projects refresh failed: ${err instanceof Error ? err.message : String(err)}`));
+  refreshProjects();
+  const projectsTimer = setInterval(refreshProjects, 15_000);
   const pruneTimer = setInterval(() => hub.prune(), 10 * 60 * 1000);
-  // One line per change, so the log shows when Terminal is asked and which focus source applies.
+  // One line per change, so the log shows which focus source applies.
   front.subscribe((app) => console.log(`${new Date().toLocaleTimeString("en-GB", { hour12: false })}  front app → ${app}`));
 
   hub.subscribe((change) => {
@@ -57,11 +60,15 @@ export async function runAgent() {
     clearInterval(pruneTimer);
     stopPoller();
     stopFocus();
-    stopTerminalFocus();
+    stopAntigravity();
+    clearInterval(projectsTimer);
     servers.stop();
     store.close();
     process.exit(0);
   }
+  // Without these an error in a timer would end the agent with nothing in the log.
+  process.on("uncaughtException", (err) => console.error("uncaught:", err));
+  process.on("unhandledRejection", (err) => console.error("unhandled rejection:", err));
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

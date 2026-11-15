@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { claudeBin } from "./config.ts";
 import { stopSession } from "./stop-session.ts";
 
 const ID = "0603472f-b7c5-4dae-b7a1-142468264b30";
@@ -9,7 +10,7 @@ test("stops a background session by its short id", async () => {
     ran.push(command);
     return { ok: true, command };
   });
-  expect(ran).toEqual([["claude", "stop", "0603472f"]]);
+  expect(ran).toEqual([[claudeBin(), "stop", "0603472f"]]);
   expect(result.ok).toBe(true);
 });
 

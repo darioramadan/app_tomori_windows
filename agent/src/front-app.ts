@@ -24,9 +24,4 @@ export class FrontApp {
       this.listeners.delete(listener);
     };
   }
-
-  /** Whether to ask Terminal which tab is selected: it is in front, or nothing says otherwise. */
-  terminalMayRun() {
-    return this.current === "terminal" || this.current === "unknown";
-  }
 }

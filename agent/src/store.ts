@@ -23,6 +23,8 @@ interface SessionRow {
   pid: number | null;
   state_since: number;
   last_event_at: number;
+  source: string | null;
+  project: string | null;
 }
 
 interface PinRow {
@@ -49,7 +51,9 @@ export class Store {
         live          INTEGER NOT NULL,
         pid           INTEGER,
         state_since   INTEGER NOT NULL,
-        last_event_at INTEGER NOT NULL
+        last_event_at INTEGER NOT NULL,
+        source        TEXT,
+        project       TEXT
       );
       CREATE TABLE IF NOT EXISTS pins (
         session_id TEXT PRIMARY KEY,
@@ -59,6 +63,12 @@ export class Store {
         created_at INTEGER NOT NULL
       );
     `);
+    // Databases created before source/project existed.
+    for (const column of ["source", "project"]) {
+      try {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
+      } catch {} // already there
+    }
   }
 
   loadSessions(): SessionRecord[] {
@@ -75,20 +85,22 @@ export class Store {
         pid: r.pid,
         stateSince: r.state_since,
         lastEventAt: r.last_event_at,
+        ...(r.source === "antigravity" ? { source: "antigravity" as const } : {}),
+        ...(r.project ? { project: r.project } : {}),
       }));
   }
 
   saveSession(s: SessionRecord) {
     this.db
       .query(
-        `INSERT INTO sessions (id, name, cwd, state, activity, live, pid, state_since, last_event_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sessions (id, name, cwd, state, activity, live, pid, state_since, last_event_at, source, project)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, cwd = excluded.cwd, state = excluded.state, activity = excluded.activity,
            live = excluded.live, pid = excluded.pid, state_since = excluded.state_since,
-           last_event_at = excluded.last_event_at`,
+           last_event_at = excluded.last_event_at, source = excluded.source, project = excluded.project`,
       )
-      .run(s.id, s.name, s.cwd, s.state, s.activity, s.live ? 1 : 0, s.pid, s.stateSince, s.lastEventAt);
+      .run(s.id, s.name, s.cwd, s.state, s.activity, s.live ? 1 : 0, s.pid, s.stateSince, s.lastEventAt, s.source ?? null, s.project ?? null);
   }
 
   deleteSession(id: string) {

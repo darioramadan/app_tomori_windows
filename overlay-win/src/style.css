@@ -1,0 +1,45 @@
+:root {
+  --backdrop: rgba(13, 13, 13, 0.78);
+  --line: rgba(255, 255, 255, 0.1);
+  --text: #f5f5f5;
+  --muted: #999;
+  --accent: #ff6b1a;
+  --danger: #ff4d4d;
+}
+html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; cursor: default; font: 12px "Segoe UI", system-ui, sans-serif; color: var(--text); }
+#root { position: fixed; inset: 0; display: flex; align-items: center; }
+#root.right { justify-content: flex-end; }
+#root.left { justify-content: flex-start; }
+#drawer { flex: none; display: flex; align-items: center; transition: transform 0.25s ease-out; }
+#drawer.collapsed { transition-timing-function: ease-in; }
+#root.left #drawer { flex-direction: row-reverse; }
+#strip, #tab { box-sizing: border-box; background: var(--backdrop); border: 1px solid var(--line); }
+#strip { display: flex; flex-direction: column; padding: 4px; }
+.cell { position: relative; flex: none; }
+.tile { position: absolute; box-sizing: border-box; }
+canvas.sp { position: absolute; image-rendering: pixelated; }
+.gh { flex: none; box-sizing: border-box; display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; text-align: center; color: var(--muted); font-size: 9px; line-height: 13px; border-top: 1px solid var(--line); white-space: nowrap; }
+.gh.first { border-top: 0; }
+#tab { flex: none; position: relative; }
+#label { position: absolute; display: none; box-sizing: border-box; max-width: 340px; padding: 6px 10px; background: var(--backdrop); border: 1px solid var(--line); border-radius: 8px; pointer-events: none; white-space: nowrap; }
+#root.right #label { text-align: right; }
+#label .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+#label .s { font: 11px Consolas, monospace; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.menu { position: absolute; width: 230px; max-height: 90vh; overflow-y: auto; box-sizing: border-box; padding: 4px; background: rgba(28, 28, 30, 0.97); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+.menu.lib { width: 280px; }
+.mh { padding: 4px 8px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 5px; white-space: nowrap; }
+.mi:hover:not(.dim) { background: rgba(255, 255, 255, 0.12); }
+.mi.dim { color: var(--muted); }
+.mi .chk { width: 12px; color: #4cd964; }
+.mi .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.mi .hint { color: var(--muted); }
+.sub { padding-left: 10px; }
+.sep { height: 1px; margin: 4px 0; background: var(--line); }
+.menu .gh { border: 0; text-align: left; padding: 6px 8px 2px; font-size: 10px; text-transform: uppercase; }
+.sw { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3); flex: none; }
+.pv { width: 16px; height: 16px; image-rendering: pixelated; flex: none; }
+.ag { position: absolute; image-rendering: pixelated; pointer-events: none; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
+.x { position: absolute; top: 4px; right: 4px; display: none; width: 12px; height: 12px; line-height: 12px; z-index: 1; text-align: center; font-size: 9px; border-radius: 50%; background: rgba(40, 40, 40, 0.95); color: #ddd; border: 1px solid var(--line); cursor: pointer; }
+.cell:hover .x { display: block; }
+.x:hover { background: var(--danger); color: #fff; }

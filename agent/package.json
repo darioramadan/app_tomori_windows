@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bun --watch src/tomari.ts agent",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:win": "bun build src/tomari.ts --compile --outfile ../dist/win/tomari.exe && bun build src/tomari.ts --compile --windows-hide-console --outfile ../dist/win/tomari-agent.exe"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

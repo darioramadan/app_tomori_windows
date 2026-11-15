@@ -6,7 +6,7 @@
  * reliable signal that a session process has died.
  */
 import { basename } from "node:path";
-import type { SessionKind, SessionState } from "../../shared/protocol.ts";
+import type { SessionKind, SessionSource, SessionState } from "../../shared/protocol.ts";
 
 export interface HookEvent {
   hook_event_name: string;
@@ -43,6 +43,10 @@ export interface SessionRecord {
   lastEventAt: number;
   /** From the poll: "interactive" (a terminal) or "background" (`claude agents`, `--bg`). Not persisted. */
   kind?: SessionKind;
+  /** Which app runs it; absent means Claude Code. */
+  source?: SessionSource;
+  /** Project (group) in its app, when known. */
+  project?: string | null;
 }
 
 /** How long hook-derived state wins over a contradicting poll. */

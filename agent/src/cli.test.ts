@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { parseCommand } from "./cli.ts";
 
 test("subcommands and their flags", () => {
-  expect(parseCommand(["agent"])).toEqual({ name: "agent" });
+  expect(parseCommand(["agent"])).toEqual({ name: "agent", log: false });
+  expect(parseCommand(["agent", "--log"])).toEqual({ name: "agent", log: true });
+  expect(parseCommand(["hook"])).toEqual({ name: "hook" });
   expect(parseCommand(["setup"])).toEqual({ name: "setup" });
   expect(parseCommand(["status"])).toEqual({ name: "status" });
   expect(parseCommand(["uninstall"])).toEqual({ name: "uninstall", purge: false });

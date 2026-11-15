@@ -1,0 +1,53 @@
+{
+  "name": "tomari",
+  "productName": "Tomari",
+  "version": "0.1.2",
+  "description": "Un bichito por sesión de Claude y Antigravity",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite build && electron .",
+    "build": "vite build",
+    "dist": "vite build && electron-builder --win nsis",
+    "deploy": "bun scripts/deploy.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6",
+    "vite": "^6"
+  },
+  "trustedDependencies": ["electron", "koffi"],
+  "build": {
+    "appId": "local.tomari.windows",
+    "productName": "Tomari",
+    "directories": {
+      "output": "release"
+    },
+    "files": ["dist/**", "electron/**", "package.json"],
+    "extraResources": [{
+      "from": "../dist/win",
+      "to": "bin",
+      "filter": ["tomari.exe", "tomari-agent.exe"]
+    }],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "Tomari"
+    }
+  }
+}

@@ -309,8 +309,8 @@ describe("SessionHub", () => {
 
     expect(hub.liveEntries()).toEqual([
       // A hook-known session was last active at its last event; a polled one, when its state began.
-      { id: A, name: "claude-panel", cwd: "/Users/dev/claude-panel", lastActivityAt: 1_000_000, pinned: true },
-      { id: B, name: "Polled", cwd: "/Users/dev/polled", lastActivityAt: 1_005_000, pinned: false },
+      { id: A, name: "claude-panel", cwd: "/Users/dev/claude-panel", lastActivityAt: 1_000_000, pinned: true, source: "claude", project: null },
+      { id: B, name: "Polled", cwd: "/Users/dev/polled", lastActivityAt: 1_005_000, pinned: false, source: "claude", project: null },
     ]);
   });
 
@@ -400,13 +400,12 @@ describe("parseClientMessage", () => {
     });
   });
 
-  test("terminal takes no arguments: anything else sent with it is dropped", () => {
-    expect(parseClientMessage(JSON.stringify({ type: "terminal" }))).toEqual({ type: "terminal" });
-    expect(parseClientMessage(JSON.stringify({ type: "terminal", command: "rm -rf ~", id: A }))).toEqual({ type: "terminal" });
+  test("terminal is no longer a message", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "terminal" }))).toBeNull();
   });
 
   test("frontApp accepts only the known app kinds and is rebuilt from the validated field", () => {
-    for (const app of ["terminal", "desktop", "other"] as const) {
+    for (const app of ["terminal", "desktop", "antigravity", "other"] as const) {
       expect(parseClientMessage(JSON.stringify({ type: "frontApp", app, id: A, extra: "x" }))).toEqual({ type: "frontApp", app });
     }
     for (const app of ["Terminal", "safari", "", 1, null, undefined]) {

@@ -14,22 +14,23 @@ const TOKEN = "test-token";
 
 const IDLE = "22222222-2222-4222-8222-222222222222";
 const DESKTOP: DesktopSession[] = [
-  { localId: "local_idle", sessionId: IDLE, title: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, archived: false },
-  { localId: "local_old", sessionId: "33333333-3333-4333-8333-333333333333", title: "Old", cwd: "/x", lastActivityAt: 1, archived: true },
+  { localId: "local_idle", sessionId: IDLE, title: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, archived: false, project: "Work" },
+  { localId: "local_old", sessionId: "33333333-3333-4333-8333-333333333333", title: "Old", cwd: "/x", lastActivityAt: 1, archived: true, project: null },
 ];
 
 let servers: ReturnType<typeof startServers>;
 let hub: SessionHub;
 let front: FrontApp;
-let opened: [id: string, cwd: string | undefined, kind: string | undefined, name: string | undefined][];
+let opened: [id: string, kind: string | undefined][];
 let stopped: string[];
+let created: string[];
 let stop: (id: string) => Promise<OpenResult>;
 let desktopSessions: () => Promise<DesktopSession[]>;
-let terminal: () => Promise<OpenResult>;
 
 beforeEach(() => {
   opened = [];
   stopped = [];
+  created = [];
   stop = async (id) => {
     stopped.push(id);
     return { ok: true, command: ["fake-stop", id] };
@@ -37,20 +38,22 @@ beforeEach(() => {
   hub = new SessionHub(new Store());
   front = new FrontApp();
   desktopSessions = async () => DESKTOP;
-  terminal = async () => ({ ok: true, command: ["fake-terminal"] });
   servers = startServers({
     hub,
     front,
     token: TOKEN,
     hookPort: 0, // 0 = any free port
     panelPort: 0,
-    open: async (id, { cwd, kind, name } = {}) => {
-      opened.push([id, cwd, kind, name]);
+    open: async (id, { kind } = {}) => {
+      opened.push([id, kind]);
       return { ok: true, command: ["fake-open", id] };
     },
     desktopSessions: () => desktopSessions(),
-    terminal: () => terminal(),
     stop: (id) => stop(id),
+    create: async (cwd) => {
+      created.push(cwd);
+      return { ok: true, command: ["fake-new", cwd] };
+    },
   });
 });
 afterEach(() => servers.stop());
@@ -126,7 +129,7 @@ test("pin, icon and open commands; anything else is refused", async () => {
 
   ws.send(JSON.stringify({ type: "open", id: ID }));
   await waitFor(() => opened.length === 1);
-  expect(opened).toEqual([[ID, "/tmp/demo", undefined, undefined]]); // where it last ran, for resuming it in a terminal
+  expect(opened).toEqual([[ID, undefined]]);
   expect(await next()).toEqual({ type: "focus", id: ID });
 
   ws.send(JSON.stringify({ type: "open", id: "11111111-1111-1111-1111-111111111111" }));
@@ -144,7 +147,7 @@ test("the library lists desktop sessions, and pinning one that isn't running ado
   ws.send(JSON.stringify({ type: "library" }));
   expect(await next()).toEqual({
     type: "library",
-    sessions: [{ id: IDLE, name: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, pinned: false }],
+    sessions: [{ id: IDLE, name: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, pinned: false, source: "claude", project: "Work" }],
   });
 
   ws.send(JSON.stringify({ type: "pin", id: IDLE, pinned: true }));
@@ -171,9 +174,9 @@ test("the library also lists live terminal sessions, newest first; the desktop e
   expect(await next()).toEqual({
     type: "library",
     sessions: [
-      { id: NEWER.sessionId, name: "Newer", cwd: "/Users/dev/idle", lastActivityAt: NEWER.lastActivityAt, pinned: false },
-      { id: ID, name: "demo", cwd: "/tmp/demo", lastActivityAt: expect.any(Number), pinned: false },
-      { id: IDLE, name: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, pinned: false },
+      { id: NEWER.sessionId, name: "Newer", cwd: "/Users/dev/idle", lastActivityAt: NEWER.lastActivityAt, pinned: false, source: "claude", project: "Work" },
+      { id: ID, name: "demo", cwd: "/tmp/demo", lastActivityAt: expect.any(Number), pinned: false, source: "claude", project: null },
+      { id: IDLE, name: "Idle work", cwd: "/Users/dev/idle", lastActivityAt: 5000, pinned: false, source: "claude", project: "Work" },
     ],
   });
   ws.close();
@@ -188,24 +191,6 @@ test("a terminal session from the library can be pinned", async () => {
   expect(await next()).toMatchObject({ type: "session", session: { id: ID, pinned: true } });
   ws.send(JSON.stringify({ type: "library" }));
   expect(await next()).toMatchObject({ type: "library", sessions: [{ id: ID, pinned: true }, { id: IDLE }] });
-  ws.close();
-});
-
-test("terminal opens a new Terminal tab; a failure comes back as an error", async () => {
-  let opens = 0;
-  terminal = async () => {
-    opens++;
-    return { ok: true, command: ["fake-terminal"] };
-  };
-  const { ws, next } = await connect();
-  await next(); // snapshot
-
-  ws.send(JSON.stringify({ type: "terminal" }));
-  await waitFor(() => opens === 1);
-
-  terminal = async () => ({ ok: false, error: "osascript exited with 1: not allowed" });
-  ws.send(JSON.stringify({ type: "terminal" }));
-  expect(await next()).toEqual({ type: "error", message: "osascript exited with 1: not allowed" });
   ws.close();
 });
 
@@ -225,31 +210,6 @@ test("a message that fails is answered with an error, and the server keeps servi
   ws.close();
 });
 
-test("planOpen: deep link for desktop sessions (running or not), refuse terminal ones, --resume otherwise", async () => {
-  const root = mkdtempSync(`${tmpdir()}/claude-open-`);
-  const liveDir = `${root}/live`;
-  const desktopDir = `${root}/desktop`;
-  mkdirSync(liveDir);
-  mkdirSync(`${desktopDir}/account/org`, { recursive: true });
-  const dirs = { liveDir, desktopDir, ttyOf: async () => undefined }; // no tty: a real one would focus a tab
-  try {
-    expect(await planOpen("not-a-uuid", dirs)).toEqual({ ok: false, error: "invalid session id" });
-
-    const unknown = await planOpen(ID, dirs);
-    expect(unknown.ok && unknown.command.slice(1)).toEqual(["--desktop", "--resume", ID]);
-
-    // process.pid makes the fake session count as running.
-    writeFileSync(`${liveDir}/1.json`, JSON.stringify({ pid: process.pid, sessionId: ID, entrypoint: "cli" }));
-    expect((await planOpen(ID, dirs)).ok).toBe(false);
-
-    // Known to the desktop app: its link wins, whether or not a process runs.
-    writeFileSync(`${desktopDir}/account/org/local_abc-123.json`, JSON.stringify({ sessionId: "local_abc-123", cliSessionId: ID }));
-    expect(await planOpen(ID, dirs)).toEqual({ ok: true, command: ["open", "claude://code/continue?session=local_abc-123"] });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 const BG = "4c3f6979-6d4f-4add-8de8-b71ea72d0f6e";
 
 test("opening a background session tells the opener its kind", async () => {
@@ -258,25 +218,7 @@ test("opening a background session tells the opener its kind", async () => {
   await next(); // snapshot
   ws.send(JSON.stringify({ type: "open", id: BG }));
   await waitFor(() => opened.length === 1);
-  expect(opened).toEqual([[BG, "/tmp/bg", "background", undefined]]);
-  ws.close();
-});
-
-test("opening passes the session's real title, not the label the panel shows", async () => {
-  const OTHER = "9a8b7c6d-1111-4222-8333-444455556666";
-  // Two untitled sessions in one folder: both get a label of folder and prompt, but neither has a title.
-  await postHook({ hook_event_name: "UserPromptSubmit", session_id: ID, cwd: "/tmp/demo", prompt: "first thing" });
-  await postHook({ hook_event_name: "UserPromptSubmit", session_id: OTHER, cwd: "/tmp/demo", prompt: "second thing" });
-  hub.handleAgents([{ sessionId: BG, name: "Release work", cwd: "/tmp/bg", kind: "background", status: "idle", startedAt: 0 }]);
-  expect(hub.get(ID)!.name).toBe("demo · first thing");
-  const { ws, next } = await connect();
-  await next(); // snapshot
-  for (const id of [ID, BG]) ws.send(JSON.stringify({ type: "open", id }));
-  await waitFor(() => opened.length === 2);
-  expect(opened.map(([id, , , name]) => [id, name])).toEqual([
-    [ID, undefined],
-    [BG, "Release work"],
-  ]);
+  expect(opened).toEqual([[BG, "background"]]);
   ws.close();
 });
 
@@ -362,4 +304,20 @@ test("a client that never reported leaves the front app alone when it disconnect
   await Bun.sleep(50);
   expect(front.value).toBe("desktop");
   reporter.ws.close();
+});
+
+test("new starts a conversation in a known session's folder, without adopting it", async () => {
+  const dir = mkdtempSync(`${tmpdir()}/tomari-new-`);
+  desktopSessions = async () => [{ ...DESKTOP[0]!, cwd: dir }];
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  ws.send(JSON.stringify({ type: "new", id: IDLE }));
+  await waitFor(() => created.length === 1);
+  expect(created).toEqual([dir]);
+  expect(hub.has(IDLE)).toBe(false);
+  ws.send(JSON.stringify({ type: "new", id: ID })); // unknown: nothing runs
+  expect(await next()).toEqual({ type: "error", message: "unknown session" });
+  expect(created).toHaveLength(1);
+  ws.close();
+  rmSync(dir, { recursive: true });
 });

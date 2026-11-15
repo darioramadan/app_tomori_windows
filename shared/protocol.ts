@@ -1,5 +1,5 @@
 /**
- * Contract between the agent and the Tomari overlay (mirrored in Sources/TomariCore/Protocol.swift),
+ * Contract between the agent and the Tomari overlay (overlay-win/src/protocol.ts imports this file),
  * over a WebSocket at ws://127.0.0.1:PANEL_PORT/ws?token=<pairing token>.
  * The agent sends a snapshot on connect, then one message per change. The overlay shows pinned
  * sessions and those working or waiting on the user.
@@ -55,7 +55,14 @@ export interface PanelSession {
    * Absent until the poll has seen the session. Clients must treat other values as unknown.
    */
   kind?: SessionKind;
+  /** Which app runs the session. */
+  source: SessionSource;
+  /** Project (group) the session belongs to in its app, e.g. "Work" or "my-site"; null when ungrouped. */
+  project: string | null;
 }
+
+export const SESSION_SOURCES = ["claude", "antigravity"] as const;
+export type SessionSource = (typeof SESSION_SOURCES)[number];
 
 /** A desktop-app session the panel can pin, running or not. */
 export interface LibraryEntry {
@@ -65,6 +72,8 @@ export interface LibraryEntry {
   /** Epoch ms of its last activity. */
   lastActivityAt: number;
   pinned: boolean;
+  source: SessionSource;
+  project: string | null;
 }
 
 export type ServerMessage =
@@ -75,16 +84,16 @@ export type ServerMessage =
   | { type: "library"; sessions: LibraryEntry[] } // reply to a library request, most recent first
   | { type: "error"; message: string };
 
-/** What the overlay says is in front: Terminal.app, the Claude desktop app, or anything else. */
-export const FRONT_APPS = ["terminal", "desktop", "other"] as const;
+/** What the overlay says is in front: the Claude desktop app, Antigravity, or anything else. ("terminal" is never sent on Windows.) */
+export const FRONT_APPS = ["terminal", "desktop", "antigravity", "other"] as const;
 export type FrontApp = (typeof FRONT_APPS)[number];
 
 /** `pin` and `icon` also accept a desktop session that isn't running: the agent starts tracking it. */
 export type ClientMessage =
   | { type: "open"; id: string }
   | { type: "pin"; id: string; pinned: boolean }
+  | { type: "new"; id: string } // starts a new desktop-app conversation in the same folder as this session
   | { type: "stop"; id: string } // stops a live background session; its conversation is kept
   | { type: "icon"; id: string; icon: SessionIcon } // pins the session if it isn't yet
   | { type: "library" }
-  | { type: "terminal" } // opens a shell in a new Terminal.app tab, without Claude
-  | { type: "frontApp"; app: FrontApp }; // sent on connect and when the app in front changes, so the agent asks Terminal only while it is in front
+  | { type: "frontApp"; app: FrontApp }; // sent on connect and when the app in front changes

@@ -1,154 +1,32 @@
 /**
- * Opens a session in the Claude desktop app.
- * - Known to the app (running or stopped while idle): navigate with the undocumented
- *   `claude://code/continue?session=local_…`; the app restarts the session if needed.
- * - Unknown to the app and closed: `claude --desktop --resume <id>` (documented, CLI ≥ 2.1.285).
- *   Without the desktop app: `claude --resume <id>` in a new Terminal.app tab, in the session's folder.
- * - A live background session (`claude --bg`): focuses a Terminal tab already titled with its name,
- *   else `claude attach` in a new tab.
- * - Running in a terminal: brings the Terminal.app tab on its tty to the front. Without a tty it is
- *   refused, since resuming it would start a second process on the same conversation.
+ * Opens a session (Windows).
+ * - Antigravity: launches Antigravity, which brings its open window to the front.
+ * - Known to the Claude desktop app (running or stopped while idle): `claude://code/continue?session=local_…`
+ *   (undocumented); the app restarts the session if needed.
+ * - Running outside the desktop app (a terminal): refused, since resuming would start a second process.
+ * - Otherwise: `claude --desktop --resume <id>` (documented, CLI ≥ 2.1.285).
  */
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { DESKTOP_SESSIONS_DIR, findDesktopSession, hasDesktopApp } from "./desktop-sessions.ts";
-import { BACKGROUND_KIND, type SessionKind } from "../../shared/protocol.ts";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { ANTIGRAVITY_EXE, claudeBin } from "./config.ts";
+import { desktopSessionsDir, findDesktopSession, hasDesktopApp } from "./desktop-sessions.ts";
+import type { SessionKind, SessionSource } from "../../shared/protocol.ts";
 import { isSessionId } from "./protocol-guard.ts";
 
 const LOCAL_ID = /^local_[A-Za-z0-9-]{1,64}$/;
-const LIVE_DIR = `${homedir()}/.claude/sessions`;
-const TTY = /^ttys\d+$/;
-
-// The scripts get session data ONLY as argv, never interpolated into their source. They are built from the
-// small pieces below; `indent` only keeps the generated source readable.
-const indent = (text: string, tabs: number) =>
-  text
-    .split("\n")
-    .map((line) => (line ? "\t".repeat(tabs) + line : line))
-    .join("\n");
-
-/**
- * Runs `body` once per tab of every Terminal window, with `w` the window and `t` the tab. The `try` skips
- * windows without tabs, which fail with -1728 when asked for them.
- */
-const forEachTab = (body: string) => `repeat with w in windows
-	set windowTabs to {}
-	try
-		set windowTabs to tabs of w
-	end try
-	repeat with t in windowTabs
-${indent(body, 2)}
-	end repeat
-end repeat`;
-
-/** Brings a tab, and the window holding it, to the front. */
-const raiseTab = (window: string, tab: string) => `set miniaturized of ${window} to false
-set selected of ${tab} to true
-set index of ${window} to 1
-activate`;
-
-// Focuses the tab on a tty: argv is the tty.
-const FOCUS_TERMINAL_TAB = `on run argv
-	set target to item 1 of argv
-	if application "Terminal" is not running then error "Terminal is not running"
-	tell application "Terminal"
-${indent(
-  forEachTab(`if tty of t is target then
-${indent(raiseTab("w", "t"), 1)}
-	return "focused " & target
-end if`),
-  2,
-)}
-	end tell
-	error "no Terminal tab on " & target
-end run`;
-
-// Terminal's dictionary has no "new tab": `do script ""` opens a shell in a new window, which macOS
-// files as a tab of the front window when "Prefer tabs when opening documents" is Always. A Terminal
-// that isn't running opens its own window at launch, so then it is only activated.
-const NEW_TERMINAL_TAB = `if application "Terminal" is running then
-	tell application "Terminal"
-		do script ""
-		activate
-	end tell
-else
-	tell application "Terminal" to activate
-end if`;
-
-// Runs a command in Terminal the way NEW_TERMINAL_TAB opens a shell. `commandExpression` is fixed source
-// that builds the command from argv through `quoted form of`; the values never reach this source.
-// `beforeOpening` runs first, inside the `tell`, and may return to skip opening anything. A Terminal that
-// isn't running opens its own window at launch: the command runs there rather than in a second window.
-const inTerminal = (commandExpression: string, beforeOpening = "") => `on run argv
-	set command to ${commandExpression}
-	if application "Terminal" is running then
-		tell application "Terminal"
-${beforeOpening ? `${indent(beforeOpening, 3)}\n` : ""}			do script command
-			activate
-		end tell
-	else
-		tell application "Terminal"
-			activate
-			repeat 50 times -- up to 5 s for the startup window
-				if (count of windows) > 0 then exit repeat
-				delay 0.1
-			end repeat
-			do script command in window 1
-		end tell
-	end if
-end run`;
-
-// Resumes a closed session, in its folder: argv is the folder, then the session id.
-const RESUME_IN_TERMINAL = inTerminal(
-  `"cd " & quoted form of (item 1 of argv) & " && claude --resume " & quoted form of (item 2 of argv)`,
-);
-
-const ATTACH_COMMAND = `"claude attach " & quoted form of (item 1 of argv)`;
-
-// Attaches to a background session: argv is its id.
-const ATTACH_IN_TERMINAL = inTerminal(ATTACH_COMMAND);
-
-// Same, but first looks for a tab that already shows the session. Claude Code titles its tabs
-// "<status glyph> <session name>", so a tab matches when its custom title is the name (item 2 of argv)
-// or the name after the first two characters. If any tab matches (the last one found: several usually
-// mean duplicates of this session) it is brought to the front and nothing is opened; otherwise the
-// attach runs.
-const FOCUS_OR_ATTACH_IN_TERMINAL = inTerminal(
-  ATTACH_COMMAND,
-  `set wanted to item 2 of argv
-set matchCount to 0
-set matchWindow to missing value
-set matchTab to missing value
-${forEachTab(`set tabTitle to ""
-try
-	set tabTitle to custom title of t
-end try
-set isMatch to (tabTitle is wanted)
-if not isMatch and (length of tabTitle) > 2 then
-	if character 2 of tabTitle is " " and (text 3 thru -1 of tabTitle) is wanted then set isMatch to true
-end if
-if isMatch then
-	set matchCount to matchCount + 1
-	set matchWindow to w
-	set matchTab to t
-end if`)}
-if matchCount > 0 then
-${indent(raiseTab("matchWindow", "matchTab"), 1)}
-	return "focused"
-end if`,
-);
+const LIVE_DIR = join(homedir(), ".claude", "sessions");
 
 /** How `claude agents`, `claude attach` and `claude stop` name a background session: the first 8 characters of its id. */
 export const backgroundId = (sessionId: string) => sessionId.slice(0, 8);
 
 /** What `openSession` knows about the session beyond its id. */
 export interface OpenOptions {
-  /** Where the session last ran. */
-  cwd?: string;
   /** What `claude agents` says the session is, if known. */
   kind?: SessionKind;
-  /** The session's title, which Claude Code also uses as its Terminal tab title; not the label the panel shows. */
-  name?: string;
+  /** Which app runs it. */
+  source?: SessionSource;
 }
 
 export type OpenResult = { ok: true; command: string[] } | { ok: false; error: string };
@@ -164,8 +42,8 @@ export function isAlive(pid: number) {
   try {
     process.kill(pid, 0); // signal 0 only checks that the process exists
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM"; // exists, but runs elevated
   }
 }
 
@@ -196,79 +74,58 @@ async function findLive(id: string, dir: string): Promise<LiveSession | undefine
   return (await readSessionFiles(dir)).find((info) => info.sessionId === id && isAlive(info.pid));
 }
 
-/** The folder the CLI recorded for a session, even after its process exited. */
-async function recordedCwd(id: string, dir: string): Promise<string | undefined> {
-  return (await readSessionFiles(dir)).find((info) => info.sessionId === id && info.cwd)?.cwd;
-}
-
-/** Controlling terminal of a process, like "ttys003" ("??" when it has none). */
-export async function processTty(pid: number): Promise<string | undefined> {
-  try {
-    const proc = Bun.spawn(["ps", "-o", "tty=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
-    const out = await new Response(proc.stdout).text();
-    return (await proc.exited) === 0 ? out.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Picks the command that would open the session, without running it. `cwd` is where it last ran. */
+/** Picks the command that would open the session, without running it. */
 export async function planOpen(
   sessionId: string,
   {
-    cwd,
+    source,
     liveDir = LIVE_DIR,
-    desktopDir = DESKTOP_SESSIONS_DIR,
-    ttyOf = processTty,
-    kind,
-    name,
-  }: OpenOptions & {
-    liveDir?: string;
-    desktopDir?: string;
-    ttyOf?: (pid: number) => Promise<string | undefined>;
-  } = {},
+    desktopDir = desktopSessionsDir(),
+    antigravityExe = ANTIGRAVITY_EXE,
+  }: OpenOptions & { liveDir?: string; desktopDir?: string; antigravityExe?: string } = {},
 ): Promise<OpenResult> {
   if (!isSessionId(sessionId)) return { ok: false, error: "invalid session id" };
+  if (source === "antigravity") return { ok: true, command: [antigravityExe] };
 
   const desktop = await findDesktopSession(sessionId, desktopDir);
   if (desktop && LOCAL_ID.test(desktop.localId)) {
-    return { ok: true, command: ["open", `claude://code/continue?session=${desktop.localId}`] };
+    // `start` hands the URL to its registered handler (the MSIX app); "" is start's window title.
+    return { ok: true, command: ["cmd", "/c", "start", "", `claude://code/continue?session=${desktop.localId}`] };
   }
   const live = await findLive(sessionId, liveDir);
-  if (live) {
-    // Background sessions run in a pty the Claude daemon owns: no tty to focus. A tab may still show
-    // them (a plain client), found by title; otherwise attach in a new one.
-    if (kind === BACKGROUND_KIND) {
-      const id = backgroundId(sessionId);
-      return {
-        ok: true,
-        command: name ? ["osascript", "-e", FOCUS_OR_ATTACH_IN_TERMINAL, id, name] : ["osascript", "-e", ATTACH_IN_TERMINAL, id],
-      };
-    }
-    const tty = await ttyOf(live.pid);
-    if (tty && TTY.test(tty)) return { ok: true, command: ["osascript", "-e", FOCUS_TERMINAL_TAB, `/dev/${tty}`] };
-    return { ok: false, error: `running outside the desktop app (${live.entrypoint}, pid ${live.pid}): open it in its terminal` };
-  }
-  if (hasDesktopApp(desktopDir)) return { ok: true, command: ["claude", "--desktop", "--resume", sessionId] };
-  const folder = cwd || (await recordedCwd(sessionId, liveDir)) || desktop?.cwd || homedir();
-  return { ok: true, command: ["osascript", "-e", RESUME_IN_TERMINAL, folder, sessionId] };
+  if (live) return { ok: false, error: `running outside the desktop app (${live.entrypoint}, pid ${live.pid}): open it in its terminal` };
+  if (hasDesktopApp(desktopDir)) return { ok: true, command: [claudeBin(), "--desktop", "--resume", sessionId] };
+  return { ok: false, error: "the Claude desktop app is not installed" };
 }
 
 export async function openSession(sessionId: string, options: OpenOptions = {}): Promise<OpenResult> {
   const plan = await planOpen(sessionId, options);
-  return plan.ok ? run(plan.command) : plan;
+  if (!plan.ok) return plan;
+  // Antigravity.exe may be the app itself starting: never wait on it (run() would kill it at the timeout).
+  return options.source === "antigravity" ? launch(plan.command) : run(plan.command);
 }
 
-/** Opens a shell, without Claude, in a new Terminal.app tab (a window unless macOS prefers tabs). `runner` is replaceable for tests. */
-export function openTerminalTab(runner: (command: string[]) => Promise<OpenResult> = run): Promise<OpenResult> {
-  return runner(["osascript", "-e", NEW_TERMINAL_TAB]);
+/** The desktop app's own "new session" link with the folder preselected (`claude --desktop` refuses to run without a console). */
+export const planNew = (cwd: string) => ["cmd", "/c", "start", "", `claude://code/new?folder=${encodeURIComponent(cwd)}`];
+
+/** Opens a new conversation in the desktop app, in `cwd`. */
+export const newSession = (cwd: string) => run(planNew(cwd));
+
+/** Starts a program and lets it outlive us. */
+export function launch(command: string[]): OpenResult {
+  try {
+    spawn(command[0]!, command.slice(1), { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    return { ok: true, command };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
-/** A hung `claude stop` or osascript (e.g. a beachballed Terminal) must not hold its caller for minutes. */
+/** A hung `claude stop` must not hold its caller for minutes. */
 const COMMAND_TIMEOUT_MS = 15_000;
 
 export async function run(command: string[], timeoutMs = COMMAND_TIMEOUT_MS): Promise<OpenResult> {
-  const proc = Bun.spawn(command, { stdout: "ignore", stderr: "pipe" });
+  const proc = Bun.spawn(command, { stdout: "ignore", stderr: "pipe", windowsHide: true });
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;

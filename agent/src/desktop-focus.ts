@@ -4,10 +4,10 @@
  * focus simply stays unknown.
  */
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { cliSessionIdFor, DESKTOP_SESSIONS_DIR } from "./desktop-sessions.ts";
+import { CLAUDE_DESKTOP_LOG } from "./config.ts";
+import { cliSessionIdFor } from "./desktop-sessions.ts";
 
-const LOG = `${homedir()}/Library/Logs/Claude/main.log`;
+const LOG = CLAUDE_DESKTOP_LOG;
 const FOCUS_LINE = /LocalSessions\.setFocusedSession: sessionId=(local_[A-Za-z0-9-]+|null)/g;
 
 // The app logs a null between two focused sessions; only a null that lasts means "nothing in front".
@@ -26,7 +26,7 @@ export function lastFocus(text: string): string | null | undefined {
  */
 export function watchDesktopFocus(
   onFocus: (sessionId: string | null) => void,
-  { log = LOG, sessionsDir = DESKTOP_SESSIONS_DIR, pollMs = 1000, missingPollMs = 60_000 } = {},
+  { log = LOG, sessionsDir = undefined as string | undefined, pollMs = 1000, missingPollMs = 5_000 } = {},
 ) {
   let offset = 0;
   let partialLine = "";
@@ -36,7 +36,16 @@ export function watchDesktopFocus(
   async function apply(value: string | null) {
     clearTimeout(blurTimer);
     if (value === null) blurTimer = setTimeout(() => onFocus(null), BLUR_DELAY_MS);
-    else onFocus(await cliSessionIdFor(value, sessionsDir));
+    else onFocus(await cliIdWithRetry(value));
+  }
+
+  /** A just-created session's metadata file may not be written yet: look a few more times. */
+  async function cliIdWithRetry(localId: string): Promise<string | null> {
+    for (let attempt = 0; ; attempt++) {
+      const id = await cliSessionIdFor(localId, sessionsDir);
+      if (id || attempt >= 3 || stopped) return id;
+      await Bun.sleep(500);
+    }
   }
 
   (async () => {

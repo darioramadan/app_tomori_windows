@@ -1,5 +1,7 @@
 # Tomari
 
+> **Windows:** este fork tiene una versión para Windows 11, con Claude desktop + Antigravity y bichitos agrupados por proyecto. Ver **[WINDOWS.md](WINDOWS.md)**.
+
 <p align="center">
   <img src="images/creatures.gif" alt="Eight pixel-art creatures, one per session state: working, needs permission, asking you, compacting, done, asleep, error and closed" width="100%">
 </p>

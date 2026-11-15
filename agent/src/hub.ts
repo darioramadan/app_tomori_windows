@@ -16,7 +16,7 @@ export type HubListener = (change: HubChange) => void;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long the poll is ignored for a session just stopped: `claude agents` may list the process a few seconds more. */
 const STOPPED_GRACE_MS = 30_000;
-const VISIBLE: (keyof SessionRecord)[] = ["name", "cwd", "state", "activity", "live", "stateSince", "kind"];
+const VISIBLE: (keyof SessionRecord)[] = ["name", "cwd", "state", "activity", "live", "stateSince", "kind", "source", "project"];
 
 export class SessionHub {
   private records = new Map<string, SessionRecord>();
@@ -32,6 +32,8 @@ export class SessionHub {
   private stoppedUntil = new Map<string, number>();
   /** The label the panel last saw for each session. */
   private labels = new Map<string, string>();
+  /** Claude session id → its project in the desktop app, re-read periodically; not persisted. */
+  private claudeProjects = new Map<string, string>();
   /** Session in front in the terminal or desktop app; not persisted. */
   focusedId: string | null = null;
 
@@ -53,6 +55,11 @@ export class SessionHub {
 
   has(id: string) {
     return this.records.has(id);
+  }
+
+  /** The raw record, for pollers that merge into it. */
+  record(id: string): SessionRecord | undefined {
+    return this.records.get(id);
   }
 
   get(id: string): PanelSession | undefined {
@@ -78,7 +85,38 @@ export class SessionHub {
         cwd: rec.cwd,
         lastActivityAt: rec.lastEventAt > 0 ? rec.lastEventAt : rec.stateSince, // 0: only the poll has seen it
         pinned: this.pins.has(rec.id),
+        source: rec.source ?? "claude",
+        project: this.projectOf(rec),
       }));
+  }
+
+  /** Project of a session: Antigravity records carry theirs; Claude ones come from the desktop app's groups. */
+  projectOf(rec: SessionRecord): string | null {
+    return rec.source === "antigravity" ? (rec.project ?? null) : (this.claudeProjects.get(rec.id) ?? null);
+  }
+
+  /** Replaces the Claude desktop app's session → project map, announcing sessions whose project changed. */
+  setClaudeProjects(projects: Map<string, string>) {
+    const before = this.claudeProjects;
+    this.claudeProjects = projects;
+    for (const rec of this.records.values()) {
+      if (!rec.source && before.get(rec.id) !== projects.get(rec.id)) this.emitSession(rec.id);
+    }
+  }
+
+  /**
+   * One successful poll of Antigravity: `seen` are its conversations as records. Live Antigravity
+   * sessions missing from it are ended (the app closed them, or Antigravity quit).
+   */
+  syncAntigravity(seen: SessionRecord[]) {
+    const ids = new Set(seen.map((rec) => rec.id));
+    for (const next of seen) {
+      const prev = this.records.get(next.id);
+      if (!prev || VISIBLE.some((k) => prev[k] !== next[k])) this.commit(next);
+    }
+    for (const rec of [...this.records.values()]) {
+      if (rec.source === "antigravity" && rec.live && !ids.has(rec.id)) this.commit(this.ended(rec));
+    }
   }
 
   handleHook(event: HookEvent) {
@@ -91,6 +129,9 @@ export class SessionHub {
       const snippet = snippetOf(event.prompt);
       if (snippet) this.prompts.set(event.session_id, snippet);
     }
+    // The poll can still list a session for a moment after it ends: don't let it revive it.
+    if (event.hook_event_name === "SessionEnd") this.stoppedUntil.set(event.session_id, this.now() + STOPPED_GRACE_MS);
+    else if (event.hook_event_name === "SessionStart") this.stoppedUntil.delete(event.session_id);
     this.commit(applyHookEvent(this.records.get(event.session_id), event, this.now()));
   }
 
@@ -98,7 +139,9 @@ export class SessionHub {
     const now = this.now();
     for (const [id, until] of this.stoppedUntil) if (until <= now) this.stoppedUntil.delete(id);
     const polled = agents.filter((agent) => !this.stoppedUntil.has(agent.sessionId));
-    for (const rec of reconcile(this.records, polled, now)) this.commit(rec);
+    // `claude agents` knows nothing about Antigravity: its sessions must not be ended for missing from the poll.
+    const claude = new Map([...this.records].filter(([, rec]) => rec.source !== "antigravity"));
+    for (const rec of reconcile(claude, polled, now)) this.commit(rec);
   }
 
   /**
@@ -292,6 +335,8 @@ export class SessionHub {
       position: pin?.position ?? null,
       icon: pin?.icon ?? DEFAULT_ICON,
       ...(rec.kind ? { kind: rec.kind } : {}),
+      source: rec.source ?? "claude",
+      project: this.projectOf(rec),
     };
   }
 }

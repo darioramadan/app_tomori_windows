@@ -17,14 +17,3 @@ test("listeners hear only real changes", () => {
   expect(heard).toEqual(["terminal", "other"]);
   expect(front.value).toBe("desktop");
 });
-
-test("Terminal is asked about only while it is in front or nobody has said what is", () => {
-  const front = new FrontApp();
-  expect(front.terminalMayRun()).toBe(true); // unknown: an agent without an overlay keeps polling
-  front.set("terminal");
-  expect(front.terminalMayRun()).toBe(true);
-  front.set("other");
-  expect(front.terminalMayRun()).toBe(false);
-  front.set("desktop");
-  expect(front.terminalMayRun()).toBe(false);
-});

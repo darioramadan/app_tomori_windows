@@ -1,5 +1,6 @@
 export type Command =
-  | { name: "agent" }
+  | { name: "agent"; log: boolean }
+  | { name: "hook" }
   | { name: "setup" }
   | { name: "status" }
   | { name: "uninstall"; purge: boolean }
@@ -11,11 +12,13 @@ export const USAGE = `Usage: tomari <command>
   setup                install the agent, the strip and the Claude Code hooks, and start them
   status               show what is installed and running
   uninstall [--purge]  remove everything; --purge also deletes pins and icons without asking
-  agent                run the agent in the foreground (what the LaunchAgent runs)
+  agent [--log]        run the agent in the foreground; --log writes to the log file (what autostart runs)
+  hook                 forward one Claude Code hook event (stdin) to the agent; always exits 0
   version              print the version`;
 
 const FLAGS: Record<string, Record<string, string>> = {
-  agent: {},
+  agent: { "--log": "log" },
+  hook: {},
   setup: {},
   status: {},
   uninstall: { "--purge": "purge" },
